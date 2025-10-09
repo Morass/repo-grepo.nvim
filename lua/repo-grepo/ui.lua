@@ -46,7 +46,8 @@ local function create_input_window(row, col, width, height, title)
     style = 'minimal',
     border = 'rounded',
     title = title,
-    title_pos = 'center'
+    title_pos = 'center',
+    zindex = 51  -- Higher than main window
   }
 
   local win = vim.api.nvim_open_win(buf, false, opts)
@@ -71,7 +72,8 @@ local function create_main_window()
     row = row,
     col = col,
     style = 'minimal',
-    border = 'rounded'
+    border = 'rounded',
+    zindex = 50  -- Base layer
   }
 
   local win = vim.api.nvim_open_win(buf, true, opts)
@@ -157,6 +159,9 @@ function M.render_input_screen()
   vim.api.nvim_buf_set_lines(buf3, 0, -1, false, {state.banned_files})
   table.insert(state.input_bufs, buf3)
   table.insert(state.input_wins, win3)
+
+  -- Force redraw to show all windows
+  vim.cmd('redraw')
 
   -- Focus on the active input window and enter insert mode
   vim.schedule(function()
