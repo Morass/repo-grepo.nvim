@@ -10,7 +10,7 @@ A repository-wide grep plugin for Neovim with a multi-window interface.
   <em>Click to view full size</em>
 </p>
 
-> **Note**: This is a hobby project. The plugin uses terminal colors for display and may be resource-intensive on large repositories with many files.
+> **Note**: This is a hobby project designed for small to medium-sized repositories. The plugin uses terminal colors for display and may be resource-intensive on large repositories with many files. No caching or optimizations are applied - each search scans files fresh.
 
 ## Features
 
