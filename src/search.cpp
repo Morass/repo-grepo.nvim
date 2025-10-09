@@ -20,6 +20,41 @@ struct LineMatch {
     std::string content;
 };
 
+// Convert glob pattern to regex pattern
+std::string glob_to_regex(const std::string& glob) {
+    std::string regex;
+    for (char c : glob) {
+        switch (c) {
+            case '*':
+                regex += ".*";
+                break;
+            case '?':
+                regex += ".";
+                break;
+            case '.':
+                regex += "\\.";
+                break;
+            case '+':
+            case '(':
+            case ')':
+            case '[':
+            case ']':
+            case '{':
+            case '}':
+            case '^':
+            case '$':
+            case '|':
+            case '\\':
+                regex += '\\';
+                regex += c;
+                break;
+            default:
+                regex += c;
+        }
+    }
+    return regex;
+}
+
 bool should_skip_path(const std::string& path, const std::vector<std::regex>& banned_regexes) {
     for (const auto& regex : banned_regexes) {
         if (std::regex_search(path, regex)) {
@@ -33,15 +68,19 @@ bool should_include_file(const std::string& path, const std::vector<std::regex>&
     if (include_regexes.empty()) {
         return true;
     }
+    // Extract just the filename for matching
+    size_t last_slash = path.find_last_of("/\\");
+    std::string filename = (last_slash != std::string::npos) ? path.substr(last_slash + 1) : path;
+
     for (const auto& regex : include_regexes) {
-        if (std::regex_search(path, regex)) {
+        if (std::regex_match(filename, regex)) {
             return true;
         }
     }
     return false;
 }
 
-std::vector<std::regex> parse_regex_list(const std::string& input) {
+std::vector<std::regex> parse_regex_list(const std::string& input, bool use_glob = true) {
     std::vector<std::regex> result;
     if (input.empty()) {
         return result;
@@ -52,7 +91,8 @@ std::vector<std::regex> parse_regex_list(const std::string& input) {
         if (c == ',') {
             if (!current.empty()) {
                 try {
-                    result.push_back(std::regex(current, std::regex::ECMAScript | std::regex::optimize));
+                    std::string pattern = use_glob ? glob_to_regex(current) : current;
+                    result.push_back(std::regex(pattern, std::regex::ECMAScript | std::regex::optimize));
                 } catch (const std::regex_error&) {
                     // Skip invalid regex
                 }
@@ -64,7 +104,8 @@ std::vector<std::regex> parse_regex_list(const std::string& input) {
     }
     if (!current.empty()) {
         try {
-            result.push_back(std::regex(current, std::regex::ECMAScript | std::regex::optimize));
+            std::string pattern = use_glob ? glob_to_regex(current) : current;
+            result.push_back(std::regex(pattern, std::regex::ECMAScript | std::regex::optimize));
         } catch (const std::regex_error&) {
             // Skip invalid regex
         }
@@ -85,21 +126,30 @@ void scan_files(const std::string& root_path,
         return;
     }
 
-    auto include_regexes = parse_regex_list(include_str);
-    auto banned_regexes = parse_regex_list(banned_str);
+    auto include_regexes = parse_regex_list(include_str, true);  // Use glob matching
+    auto banned_regexes = parse_regex_list(banned_str, true);   // Use glob matching
 
     std::vector<FileMatch> matches;
 
     try {
-        for (const auto& entry : fs::recursive_directory_iterator(
-                root_path,
-                fs::directory_options::skip_permission_denied)) {
+        fs::recursive_directory_iterator iter(root_path, fs::directory_options::skip_permission_denied);
+        fs::recursive_directory_iterator end;
+
+        for (; iter != end; ++iter) {
+            const auto& entry = *iter;
+            std::string relative_path = fs::relative(entry.path(), root_path).string();
+
+            // Skip banned directories early (don't recurse into them)
+            if (entry.is_directory()) {
+                if (should_skip_path(relative_path, banned_regexes)) {
+                    iter.disable_recursion_pending();
+                }
+                continue;
+            }
 
             if (!entry.is_regular_file()) {
                 continue;
             }
-
-            std::string relative_path = fs::relative(entry.path(), root_path).string();
 
             // Check if path should be skipped
             if (should_skip_path(relative_path, banned_regexes)) {

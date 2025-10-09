@@ -416,7 +416,7 @@ function M.start()
   -- Initialize with default banned files
   local state = ui.get_state()
   if state.banned_files == "" then
-    state.banned_files = vim.g.repo_grepo_banned_files or "*venv*,__pycache__"
+    state.banned_files = vim.g.repo_grepo_banned_files or "*venv*,*__pycache__*,*.git*,*node_modules*,*.pyc"
   end
   if state.include_files == "" then
     state.include_files = vim.g.repo_grepo_include_files or ""

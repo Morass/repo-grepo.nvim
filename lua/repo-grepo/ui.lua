@@ -142,7 +142,7 @@ function M.render_input_screen()
     start_col,
     input_width,
     input_height,
-    " Include Files (comma-separated regexes, empty = all) "
+    " Include Files (comma-separated globs, e.g., *.py, empty = all) "
   )
   vim.api.nvim_buf_set_lines(buf2, 0, -1, false, {state.include_files})
   table.insert(state.input_bufs, buf2)
@@ -154,7 +154,7 @@ function M.render_input_screen()
     start_col,
     input_width,
     input_height,
-    " Banned Files/Folders (comma-separated regexes) "
+    " Banned Files/Folders (comma-separated globs) "
   )
   vim.api.nvim_buf_set_lines(buf3, 0, -1, false, {state.banned_files})
   table.insert(state.input_bufs, buf3)
@@ -242,8 +242,11 @@ function M.render_file_list()
 
   for i = 1, #state.file_matches do
     local line_idx = 5 + i - 1
-    vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoYellow', line_idx, 2, 2 + #tostring(state.file_matches[i].count) + 2)
-    vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoGreen', line_idx, 6 + #tostring(state.file_matches[i].count), -1)
+    local count_str = "[" .. tostring(state.file_matches[i].count) .. "]"
+    local count_end = 2 + #count_str
+    local path_start = count_end + 1  -- Space after count
+    vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoYellow', line_idx, 2, count_end)
+    vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoGreen', line_idx, path_start, -1)
   end
 
   if #state.file_matches == 0 then
