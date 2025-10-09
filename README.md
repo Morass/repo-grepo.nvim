@@ -2,6 +2,8 @@
 
 A repository-wide grep plugin for Neovim with a multi-window interface.
 
+![Demo](assets/demo.gif)
+
 > **Note**: This is a hobby project. The plugin uses terminal colors for display and may be resource-intensive on large repositories with many files.
 
 ## Features

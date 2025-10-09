@@ -1,12 +1,10 @@
-#include <iostream>
-#include <fstream>
-#include <string>
-#include <vector>
-#include <regex>
 #include <algorithm>
 #include <filesystem>
-#include <map>
-#include <cstring>
+#include <fstream>
+#include <iostream>
+#include <regex>
+#include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -23,6 +21,8 @@ struct LineMatch {
 // Convert glob pattern to regex pattern
 std::string glob_to_regex(const std::string& glob) {
     std::string regex;
+    regex.reserve(glob.size() * 2);  // Pre-allocate to avoid reallocations
+
     for (char c : glob) {
         switch (c) {
             case '*':
@@ -68,9 +68,10 @@ bool should_include_file(const std::string& path, const std::vector<std::regex>&
     if (include_regexes.empty()) {
         return true;
     }
+
     // Extract just the filename for matching
-    size_t last_slash = path.find_last_of("/\\");
-    std::string filename = (last_slash != std::string::npos) ? path.substr(last_slash + 1) : path;
+    const size_t last_slash = path.find_last_of("/\\");
+    const std::string filename = (last_slash != std::string::npos) ? path.substr(last_slash + 1) : path;
 
     for (const auto& regex : include_regexes) {
         if (std::regex_match(filename, regex)) {
@@ -167,9 +168,11 @@ void scan_files(const std::string& root_path,
                 continue;
             }
 
-            char buffer[512];
-            file.read(buffer, sizeof(buffer));
-            std::streamsize bytes_read = file.gcount();
+            constexpr size_t BUFFER_SIZE = 512;
+            char buffer[BUFFER_SIZE];
+            file.read(buffer, BUFFER_SIZE);
+            const std::streamsize bytes_read = file.gcount();
+
             bool is_binary = false;
             for (std::streamsize i = 0; i < bytes_read; ++i) {
                 if (buffer[i] == '\0') {
@@ -179,24 +182,22 @@ void scan_files(const std::string& root_path,
             }
 
             if (is_binary) {
-                file.close();
                 continue;
             }
 
             // Reset to beginning for actual search
             file.seekg(0);
 
-            int match_count = 0;
+            size_t match_count = 0;
             std::string line;
             while (std::getline(file, line)) {
                 if (std::regex_search(line, pattern)) {
-                    match_count++;
+                    ++match_count;
                 }
             }
-            file.close();
 
             if (match_count > 0) {
-                matches.push_back({relative_path, match_count});
+                matches.push_back({relative_path, static_cast<int>(match_count)});
             }
         }
     } catch (const fs::filesystem_error& e) {
@@ -222,7 +223,7 @@ void scan_file_lines(const std::string& file_path, const std::string& pattern_st
     std::regex pattern;
     try {
         pattern = std::regex(pattern_str, std::regex::ECMAScript | std::regex::optimize);
-    } catch (const std::regex_error& e) {
+    } catch (const std::regex_error&) {
         std::cerr << "ERROR: Invalid regex pattern: " << pattern_str << std::endl;
         return;
     }
@@ -234,48 +235,46 @@ void scan_file_lines(const std::string& file_path, const std::string& pattern_st
     }
 
     std::string line;
-    int line_number = 1;
+    size_t line_number = 1;
     while (std::getline(file, line)) {
         if (std::regex_search(line, pattern)) {
             // Replace pipe characters to avoid conflicts with delimiter
-            std::string safe_line = line;
-            for (char& c : safe_line) {
+            for (char& c : line) {
                 if (c == '|') {
                     c = ' ';
                 }
             }
-            std::cout << line_number << "|" << safe_line << std::endl;
+            std::cout << line_number << "|" << line << std::endl;
         }
-        line_number++;
+        ++line_number;
     }
-    file.close();
 }
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <mode> <args...>" << std::endl;
-        std::cerr << "Modes:" << std::endl;
-        std::cerr << "  files <root_path> <pattern> <include_regexes> <banned_regexes>" << std::endl;
-        std::cerr << "  lines <file_path> <pattern>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <mode> <args...>\n"
+                  << "Modes:\n"
+                  << "  files <root_path> <pattern> <include_regexes> <banned_regexes>\n"
+                  << "  lines <file_path> <pattern>\n";
         return 1;
     }
 
-    std::string mode = argv[1];
+    const std::string mode = argv[1];
 
     if (mode == "files") {
         if (argc != 6) {
-            std::cerr << "ERROR: files mode requires 4 arguments" << std::endl;
+            std::cerr << "ERROR: files mode requires 4 arguments\n";
             return 1;
         }
         scan_files(argv[2], argv[3], argv[4], argv[5]);
     } else if (mode == "lines") {
         if (argc != 4) {
-            std::cerr << "ERROR: lines mode requires 2 arguments" << std::endl;
+            std::cerr << "ERROR: lines mode requires 2 arguments\n";
             return 1;
         }
         scan_file_lines(argv[2], argv[3]);
     } else {
-        std::cerr << "ERROR: Unknown mode: " << mode << std::endl;
+        std::cerr << "ERROR: Unknown mode: " << mode << '\n';
         return 1;
     }
 
