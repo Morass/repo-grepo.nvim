@@ -1,0 +1,16 @@
+# Compiled binaries
+bin/
+*.o
+*.out
+*.exe
+
+# Build artifacts
+src/*.dSYM/
+
+# macOS
+.DS_Store
+
+# Vim
+*.swp
+*.swo
+*~
