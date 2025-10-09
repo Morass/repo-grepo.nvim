@@ -133,94 +133,94 @@ local function setup_keymaps()
 
     for idx, buf in ipairs(state.input_bufs) do
       -- Ctrl+n to switch windows (avoids Tab conflicts)
-      vim.api.nvim_buf_set_keymap(buf, 'i', '<C-n>', '', {
+      vim.keymap.set('i', '<C-n>', switch_window, {
+        buffer = buf,
         noremap = true,
-        silent = true,
-        callback = switch_window
+        silent = true
       })
 
-      -- Also support Tab for switching
-      vim.api.nvim_buf_set_keymap(buf, 'i', '<Tab>', '', {
+      -- Tab to switch - use vim.keymap.set for better priority
+      vim.keymap.set('i', '<Tab>', switch_window, {
+        buffer = buf,
         noremap = true,
-        silent = true,
-        callback = switch_window
+        silent = true
       })
 
       -- Enter to search
-      vim.api.nvim_buf_set_keymap(buf, 'i', '<CR>', '', {
-        noremap = true,
-        silent = true,
-        callback = function()
-          -- Save all inputs
-          for i = 1, 3 do
-            local lines = vim.api.nvim_buf_get_lines(state.input_bufs[i], 0, -1, false)
-            local text = lines[1] or ""
-            if i == 1 then
-              state.pattern = text
-            elseif i == 2 then
-              state.include_files = text
-            elseif i == 3 then
-              state.banned_files = text
-            end
+      vim.keymap.set('i', '<CR>', function()
+        -- Save all inputs
+        for i = 1, 3 do
+          local lines = vim.api.nvim_buf_get_lines(state.input_bufs[i], 0, -1, false)
+          local text = lines[1] or ""
+          if i == 1 then
+            state.pattern = text
+          elseif i == 2 then
+            state.include_files = text
+          elseif i == 3 then
+            state.banned_files = text
           end
-
-          -- Validate pattern
-          if state.pattern == "" then
-            vim.api.nvim_err_writeln("Error: Search pattern cannot be empty")
-            return
-          end
-
-          vim.cmd('stopinsert')
-
-          -- Get git root
-          local root = get_git_root()
-          if not root then
-            vim.api.nvim_err_writeln("Error: Not in a git repository")
-            return
-          end
-
-          -- Show loading screen
-          ui.render_loading_screen()
-
-          -- Run search
-          vim.defer_fn(function()
-            local matches = run_search(root, state.pattern, state.include_files, state.banned_files)
-            if matches then
-              state.file_matches = matches
-              ui.render_file_list()
-              setup_keymaps()
-            else
-              ui.close()
-            end
-          end, 100)
         end
+
+        -- Validate pattern
+        if state.pattern == "" then
+          vim.api.nvim_err_writeln("Error: Search pattern cannot be empty")
+          return
+        end
+
+        vim.cmd('stopinsert')
+
+        -- Get git root
+        local root = get_git_root()
+        if not root then
+          vim.api.nvim_err_writeln("Error: Not in a git repository")
+          return
+        end
+
+        -- Show loading screen
+        ui.render_loading_screen()
+
+        -- Run search
+        vim.defer_fn(function()
+          local matches = run_search(root, state.pattern, state.include_files, state.banned_files)
+          if matches then
+            state.file_matches = matches
+            ui.render_file_list()
+            setup_keymaps()
+          else
+            ui.close()
+          end
+        end, 100)
+      end, {
+        buffer = buf,
+        noremap = true,
+        silent = true
       })
 
       -- Escape to close (insert mode)
-      vim.api.nvim_buf_set_keymap(buf, 'i', '<Esc>', '', {
+      vim.keymap.set('i', '<Esc>', function()
+        vim.cmd('stopinsert')
+        ui.close()
+      end, {
+        buffer = buf,
         noremap = true,
-        silent = true,
-        callback = function()
-          vim.cmd('stopinsert')
-          ui.close()
-        end
+        silent = true
       })
 
       -- Escape and q to close (normal mode)
-      vim.api.nvim_buf_set_keymap(buf, 'n', '<Esc>', '', {
+      vim.keymap.set('n', '<Esc>', function()
+        ui.close()
+      end, {
+        buffer = buf,
         noremap = true,
-        silent = true,
-        callback = function()
-          ui.close()
-        end
+        silent = true
       })
 
-      vim.api.nvim_buf_set_keymap(buf, 'n', 'q', '', {
+      vim.keymap.set('n', 'q', function()
+        ui.close()
+      end, {
+        buffer = buf,
         noremap = true,
-        silent = true,
-        callback = function()
-          ui.close()
-        end
+        silent = true
       })
     end
   end
