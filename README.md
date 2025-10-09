@@ -62,8 +62,8 @@ The plugin opens with three input windows:
 
 #### Input Screen
 - `Enter` - Start search
-- `Tab` - Switch between input windows
-- `Esc` - Close plugin
+- `Tab` or `Ctrl+n` - Switch between input windows
+- `Esc` or `q` - Close plugin
 
 #### File List Screen
 - `Enter` - View matching lines in selected file

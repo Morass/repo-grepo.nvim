@@ -104,35 +104,46 @@ local function setup_keymaps()
 
   -- Input mode keymaps
   if state.mode == "input" then
+    local function switch_window()
+      -- Save current input
+      local current_buf = state.input_bufs[state.active_input]
+      local lines = vim.api.nvim_buf_get_lines(current_buf, 0, -1, false)
+      if state.active_input == 1 then
+        state.pattern = lines[1] or ""
+      elseif state.active_input == 2 then
+        state.include_files = lines[1] or ""
+      elseif state.active_input == 3 then
+        state.banned_files = lines[1] or ""
+      end
+
+      -- Switch to next input
+      state.active_input = state.active_input + 1
+      if state.active_input > 3 then
+        state.active_input = 1
+      end
+
+      vim.cmd('stopinsert')
+      if vim.api.nvim_win_is_valid(state.input_wins[state.active_input]) then
+        vim.api.nvim_set_current_win(state.input_wins[state.active_input])
+        local buf_lines = vim.api.nvim_buf_get_lines(state.input_bufs[state.active_input], 0, 1, false)
+        vim.api.nvim_win_set_cursor(state.input_wins[state.active_input], {1, #(buf_lines[1] or "")})
+        vim.cmd('startinsert!')
+      end
+    end
+
     for idx, buf in ipairs(state.input_bufs) do
-      -- Tab to switch windows
+      -- Ctrl+n to switch windows (avoids Tab conflicts)
+      vim.api.nvim_buf_set_keymap(buf, 'i', '<C-n>', '', {
+        noremap = true,
+        silent = true,
+        callback = switch_window
+      })
+
+      -- Also support Tab for switching
       vim.api.nvim_buf_set_keymap(buf, 'i', '<Tab>', '', {
         noremap = true,
         silent = true,
-        callback = function()
-          -- Save current input
-          local current_buf = state.input_bufs[state.active_input]
-          local lines = vim.api.nvim_buf_get_lines(current_buf, 0, -1, false)
-          if state.active_input == 1 then
-            state.pattern = lines[1] or ""
-          elseif state.active_input == 2 then
-            state.include_files = lines[1] or ""
-          elseif state.active_input == 3 then
-            state.banned_files = lines[1] or ""
-          end
-
-          -- Switch to next input
-          state.active_input = state.active_input + 1
-          if state.active_input > 3 then
-            state.active_input = 1
-          end
-
-          vim.cmd('stopinsert')
-          vim.api.nvim_set_current_win(state.input_wins[state.active_input])
-          local buf_lines = vim.api.nvim_buf_get_lines(state.input_bufs[state.active_input], 0, 1, false)
-          vim.api.nvim_win_set_cursor(state.input_wins[state.active_input], {1, #buf_lines[1]})
-          vim.cmd('startinsert!')
-        end
+        callback = switch_window
       })
 
       -- Enter to search
@@ -185,12 +196,29 @@ local function setup_keymaps()
         end
       })
 
-      -- Escape to close
+      -- Escape to close (insert mode)
       vim.api.nvim_buf_set_keymap(buf, 'i', '<Esc>', '', {
         noremap = true,
         silent = true,
         callback = function()
           vim.cmd('stopinsert')
+          ui.close()
+        end
+      })
+
+      -- Escape and q to close (normal mode)
+      vim.api.nvim_buf_set_keymap(buf, 'n', '<Esc>', '', {
+        noremap = true,
+        silent = true,
+        callback = function()
+          ui.close()
+        end
+      })
+
+      vim.api.nvim_buf_set_keymap(buf, 'n', 'q', '', {
+        noremap = true,
+        silent = true,
+        callback = function()
           ui.close()
         end
       })

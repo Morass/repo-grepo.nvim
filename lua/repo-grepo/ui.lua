@@ -106,7 +106,7 @@ function M.render_input_screen()
     "",
     "  Repo Grepo - Fast Repository Search",
     "",
-    "  Shortcuts: Enter = Search | Esc = Back/Close | Tab = Switch Input",
+    "  Shortcuts: Enter = Search | Esc/q = Close | Tab/Ctrl+n = Switch Input",
     "",
   }
 
@@ -158,10 +158,16 @@ function M.render_input_screen()
   table.insert(state.input_bufs, buf3)
   table.insert(state.input_wins, win3)
 
-  -- Focus on the active input window
-  vim.api.nvim_set_current_win(state.input_wins[state.active_input])
-  vim.api.nvim_win_set_cursor(state.input_wins[state.active_input], {1, #vim.api.nvim_buf_get_lines(state.input_bufs[state.active_input], 0, 1, false)[1]})
-  vim.cmd('startinsert!')
+  -- Focus on the active input window and enter insert mode
+  vim.schedule(function()
+    if vim.api.nvim_win_is_valid(state.input_wins[state.active_input]) then
+      vim.api.nvim_set_current_win(state.input_wins[state.active_input])
+      local lines = vim.api.nvim_buf_get_lines(state.input_bufs[state.active_input], 0, 1, false)
+      local line_len = #(lines[1] or "")
+      vim.api.nvim_win_set_cursor(state.input_wins[state.active_input], {1, line_len})
+      vim.cmd('startinsert!')
+    end
+  end)
 end
 
 function M.render_loading_screen()
