@@ -68,53 +68,65 @@ local function run_search(root_path, pattern, include_files, banned_files)
   return matches
 end
 
-local function run_line_search(file_path, pattern)
+local function run_line_search(file_path, pattern, callback)
   local plugin_path = get_plugin_path()
   local search_bin = plugin_path .. '/bin/repo-grepo-search'
 
-  -- Check if file exists and is not too large (> 10MB)
-  local stat = vim.loop.fs_stat(file_path)
-  if not stat then
-    vim.api.nvim_err_writeln("Error: File does not exist: " .. file_path)
-    return nil
-  end
-  if stat.size > 10 * 1024 * 1024 then
-    vim.api.nvim_err_writeln("Error: File too large (> 10MB): " .. file_path)
-    return nil
-  end
+  local cmd = {
+    search_bin,
+    'lines',
+    file_path,
+    pattern
+  }
 
-  local cmd = string.format(
-    '%s lines %s %s',
-    vim.fn.shellescape(search_bin),
-    vim.fn.shellescape(file_path),
-    vim.fn.shellescape(pattern)
-  )
+  local output_lines = {}
 
-  local output = vim.fn.system(cmd)
-  local exit_code = vim.v.shell_error
+  vim.fn.jobstart(cmd, {
+    stdout_buffered = true,
+    stderr_buffered = true,
+    on_stdout = function(_, data, _)
+      if data then
+        for _, line in ipairs(data) do
+          if line ~= "" then
+            table.insert(output_lines, line)
+          end
+        end
+      end
+    end,
+    on_stderr = function(_, data, _)
+      if data then
+        for _, line in ipairs(data) do
+          if line ~= "" and line:match("^ERROR:") then
+            vim.api.nvim_err_writeln(line)
+          end
+        end
+      end
+    end,
+    on_exit = function(_, exit_code, _)
+      if exit_code ~= 0 then
+        vim.schedule(function()
+          vim.api.nvim_err_writeln("Error: Search command failed with exit code " .. exit_code)
+          callback(nil)
+        end)
+        return
+      end
 
-  if exit_code ~= 0 then
-    vim.api.nvim_err_writeln("Error: Search command failed with exit code " .. exit_code)
-    return nil
-  end
+      local matches = {}
+      for _, line in ipairs(output_lines) do
+        local line_num, content = line:match("^(%d+)|(.*)$")
+        if line_num and content then
+          table.insert(matches, {
+            line_number = tonumber(line_num),
+            content = content
+          })
+        end
+      end
 
-  local matches = {}
-
-  for line in output:gmatch("[^\r\n]+") do
-    if line:match("^ERROR:") then
-      vim.api.nvim_err_writeln(line)
-      return nil
+      vim.schedule(function()
+        callback(matches)
+      end)
     end
-    local line_num, content = line:match("^(%d+)|(.*)$")
-    if line_num and content then
-      table.insert(matches, {
-        line_number = tonumber(line_num),
-        content = content
-      })
-    end
-  end
-
-  return matches
+  })
 end
 
 local function setup_keymaps()
@@ -349,8 +361,8 @@ local function setup_keymaps()
           -- Show loading briefly
           ui.render_loading_screen()
 
-          vim.defer_fn(function()
-            local line_matches = run_line_search(full_path, state.pattern)
+          -- Run async line search
+          run_line_search(full_path, state.pattern, function(line_matches)
             if line_matches then
               state.line_matches = line_matches
               ui.render_line_list()
@@ -358,7 +370,7 @@ local function setup_keymaps()
             else
               ui.close()
             end
-          end, 50)
+          end)
         end
       end
     })

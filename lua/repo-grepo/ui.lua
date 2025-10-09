@@ -292,6 +292,7 @@ function M.render_file_list()
   vim.api.nvim_buf_set_option(state.main_buf, 'modifiable', false)
 
   if #state.file_matches > 0 then
+    vim.api.nvim_set_current_win(state.main_win)
     vim.api.nvim_win_set_cursor(state.main_win, {6, 0})
   end
 end
@@ -371,6 +372,7 @@ function M.render_line_list()
   vim.api.nvim_buf_set_option(state.main_buf, 'modifiable', false)
 
   if #state.line_matches > 0 then
+    vim.api.nvim_set_current_win(state.main_win)
     vim.api.nvim_win_set_cursor(state.main_win, {6, 0})
   end
 end
