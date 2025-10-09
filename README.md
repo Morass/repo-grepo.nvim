@@ -114,27 +114,6 @@ The C++ backend uses:
 
 **Important**: The search is currently single-threaded and processes files sequentially. On large repositories, searches may take some time and could be resource-intensive. Consider using specific include/exclude patterns to narrow down the search scope.
 
-## Troubleshooting
-
-### "Search binary not found" error
-
-The C++ backend wasn't compiled. Run:
-```bash
-cd ~/.vim/plugged/repo-grepo.nvim  # adjust path as needed
-make
-```
-
-### "Not in a git repository" error
-
-This plugin requires you to be inside a git repository. Initialize one with:
-```bash
-git init
-```
-
 ## License
 
 MIT
-
-## Author
-
-Morass
