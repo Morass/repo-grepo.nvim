@@ -1,13 +1,15 @@
 # repo-grepo.nvim
 
-⚡ Blazingly fast repository-wide grep plugin for Neovim with a beautiful multi-window interface.
+A repository-wide grep plugin for Neovim with a multi-window interface.
+
+> **Note**: This is a hobby project. The plugin uses terminal colors for display and may be resource-intensive on large repositories with many files.
 
 ## Features
 
-- **Lightning Fast**: C++ backend for efficient file traversal and regex matching
-- **Multi-Window Interface**: Clean overlay UI with separate input windows
+- **C++ Backend**: File traversal and regex matching using C++
+- **Multi-Window Interface**: Overlay UI with separate input windows
 - **Git-Aware**: Automatically finds repository root
-- **Smart Filtering**: Include/exclude files with regex patterns
+- **Smart Filtering**: Include/exclude files with glob patterns
 - **Interactive Navigation**: Browse matches by file, then by line
 - **Jump to Context**: Open files directly at matching lines
 
@@ -16,6 +18,7 @@
 - Neovim 0.5+
 - C++17 compatible compiler (g++, clang++)
 - Git repository
+- Terminal with 256 color support
 
 ## Installation
 
@@ -101,13 +104,15 @@ vim.g.repo_grepo_include_files = ''
 4. **Line List**: Shows all matching lines with line numbers
 5. **Jump**: Opens file at exact line in your editor
 
-## Performance
+## Performance Notes
 
 The C++ backend uses:
-- Optimized regex compilation with `std::regex::optimize`
-- Efficient filesystem traversal with `std::filesystem`
+- Regex compilation with `std::regex::optimize`
+- Filesystem traversal with `std::filesystem`
 - Binary file detection to skip non-text files
-- Smart filtering to minimize files scanned
+- Pattern-based filtering to reduce files scanned
+
+**Important**: The search is currently single-threaded and processes files sequentially. On large repositories, searches may take some time and could be resource-intensive. Consider using specific include/exclude patterns to narrow down the search scope.
 
 ## Troubleshooting
 
