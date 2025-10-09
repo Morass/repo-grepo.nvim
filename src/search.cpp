@@ -133,38 +133,53 @@ void scan_files(const std::string& root_path,
     std::vector<FileMatch> matches;
 
     try {
-        fs::recursive_directory_iterator iter(root_path, fs::directory_options::skip_permission_denied);
+        fs::recursive_directory_iterator iter(
+            root_path,
+            fs::directory_options::skip_permission_denied
+        );
         fs::recursive_directory_iterator end;
 
-        for (; iter != end; ++iter) {
+        for (; iter != end; ) {
+            std::error_code ec;
             const auto& entry = *iter;
-            std::string relative_path = fs::relative(entry.path(), root_path).string();
+            std::string relative_path = fs::relative(entry.path(), root_path, ec).string();
 
-            // Skip banned directories early (don't recurse into them)
-            if (entry.is_directory()) {
-                if (should_skip_path(relative_path, banned_regexes)) {
-                    iter.disable_recursion_pending();
-                }
+            // Skip entries with errors (including symlink loops)
+            if (ec) {
+                iter.increment(ec);
                 continue;
             }
 
-            if (!entry.is_regular_file()) {
+            // Skip banned directories early (don't recurse into them)
+            if (entry.is_directory(ec)) {
+                if (should_skip_path(relative_path, banned_regexes)) {
+                    iter.disable_recursion_pending();
+                }
+                iter.increment(ec);
+                continue;
+            }
+
+            if (!entry.is_regular_file(ec) || ec) {
+                iter.increment(ec);
                 continue;
             }
 
             // Check if path should be skipped
             if (should_skip_path(relative_path, banned_regexes)) {
+                iter.increment(ec);
                 continue;
             }
 
             // Check if file should be included
             if (!should_include_file(relative_path, include_regexes)) {
+                iter.increment(ec);
                 continue;
             }
 
             // Skip binary files by checking for null bytes in first 512 bytes
             std::ifstream file(entry.path(), std::ios::binary);
             if (!file.is_open()) {
+                iter.increment(ec);
                 continue;
             }
 
@@ -182,6 +197,7 @@ void scan_files(const std::string& root_path,
             }
 
             if (is_binary) {
+                iter.increment(ec);
                 continue;
             }
 
@@ -199,6 +215,8 @@ void scan_files(const std::string& root_path,
             if (match_count > 0) {
                 matches.push_back({relative_path, static_cast<int>(match_count)});
             }
+
+            iter.increment(ec);
         }
     } catch (const fs::filesystem_error& e) {
         std::cerr << "ERROR: Filesystem error: " << e.what() << std::endl;
