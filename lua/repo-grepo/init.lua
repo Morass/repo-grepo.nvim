@@ -72,6 +72,17 @@ local function run_line_search(file_path, pattern)
   local plugin_path = get_plugin_path()
   local search_bin = plugin_path .. '/bin/repo-grepo-search'
 
+  -- Check if file exists and is not too large (> 10MB)
+  local stat = vim.loop.fs_stat(file_path)
+  if not stat then
+    vim.api.nvim_err_writeln("Error: File does not exist: " .. file_path)
+    return nil
+  end
+  if stat.size > 10 * 1024 * 1024 then
+    vim.api.nvim_err_writeln("Error: File too large (> 10MB): " .. file_path)
+    return nil
+  end
+
   local cmd = string.format(
     '%s lines %s %s',
     vim.fn.shellescape(search_bin),
@@ -80,6 +91,13 @@ local function run_line_search(file_path, pattern)
   )
 
   local output = vim.fn.system(cmd)
+  local exit_code = vim.v.shell_error
+
+  if exit_code ~= 0 then
+    vim.api.nvim_err_writeln("Error: Search command failed with exit code " .. exit_code)
+    return nil
+  end
+
   local matches = {}
 
   for line in output:gmatch("[^\r\n]+") do

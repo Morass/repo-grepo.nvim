@@ -110,25 +110,12 @@ function M.render_input_screen()
     "",
     "  Shortcuts: Enter = Search | Esc/q = Close | Up/Down = Switch Input",
     "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "  Note: Pattern uses 'match' (anywhere in line), Include/Exclude use 'fullmatch' (filename)",
   }
 
   vim.api.nvim_buf_set_option(state.main_buf, 'modifiable', true)
   vim.api.nvim_buf_set_lines(state.main_buf, 0, -1, false, lines)
   vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoTitle', 1, 0, -1)
   vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoGray', 3, 0, -1)
-  vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoGray', #lines - 1, 0, -1)  -- Note line
   vim.api.nvim_buf_set_option(state.main_buf, 'modifiable', false)
 
   -- Create 3 input sub-windows
@@ -172,6 +159,18 @@ function M.render_input_screen()
   vim.api.nvim_buf_set_lines(buf3, 0, -1, false, {state.banned_files})
   table.insert(state.input_bufs, buf3)
   table.insert(state.input_wins, win3)
+
+  -- Add note below the input windows
+  local note_row = start_row + (input_height + 2) * 3 + 1
+  local note_lines = vim.api.nvim_buf_get_lines(state.main_buf, 0, -1, false)
+  while #note_lines < note_row + 2 do
+    table.insert(note_lines, "")
+  end
+  note_lines[note_row + 1] = "  Note: Pattern uses 'match' (anywhere in line), Include/Exclude use 'fullmatch' (filename)"
+  vim.api.nvim_buf_set_option(state.main_buf, 'modifiable', true)
+  vim.api.nvim_buf_set_lines(state.main_buf, 0, -1, false, note_lines)
+  vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoGray', note_row, 0, -1)
+  vim.api.nvim_buf_set_option(state.main_buf, 'modifiable', false)
 
   -- Force redraw to show all windows
   vim.cmd('redraw')
@@ -241,8 +240,18 @@ function M.render_file_list()
     table.insert(lines, "  No files found matching your criteria.")
     table.insert(lines, "")
   else
+    -- Find max count for padding
+    local max_count = 0
+    for _, match in ipairs(state.file_matches) do
+      if match.count > max_count then
+        max_count = match.count
+      end
+    end
+    local count_width = #tostring(max_count)
+
     for i, match in ipairs(state.file_matches) do
-      local line = string.format("  [%d]  %s", match.count, match.path)  -- Extra space after count
+      local count_str = string.format("%" .. count_width .. "d", match.count)
+      local line = string.format("  [%s]  %s", count_str, match.path)
       table.insert(lines, line)
     end
   end
@@ -258,9 +267,18 @@ function M.render_file_list()
 
   vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoGray', 3, 0, -1)
 
+  -- Calculate padding for highlighting
+  local max_count = 0
+  for _, match in ipairs(state.file_matches) do
+    if match.count > max_count then
+      max_count = match.count
+    end
+  end
+  local count_width = #tostring(max_count)
+
   for i = 1, #state.file_matches do
     local line_idx = 5 + i - 1
-    local count_str = "[" .. tostring(state.file_matches[i].count) .. "]"
+    local count_str = "[" .. string.format("%" .. count_width .. "d", state.file_matches[i].count) .. "]"
     local count_end = 2 + #count_str
     local path_start = count_end + 2  -- Two spaces after count
     vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoYellow', line_idx, 2, count_end)
