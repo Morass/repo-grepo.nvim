@@ -6,8 +6,6 @@ A repository-wide grep plugin for Neovim with a multi-window interface.
   <a href="assets/demo.gif">
     <img src="assets/demo.gif" alt="Demo" width="800">
   </a>
-  <br>
-  <em>Click to view full size</em>
 </p>
 
 > **Note**: This is a hobby project designed for small to medium-sized repositories. The plugin uses terminal colors for display and may be resource-intensive on large repositories with many files. No caching or optimizations are applied - each search scans files fresh.
