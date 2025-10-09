@@ -122,12 +122,14 @@ local function setup_keymaps()
         state.active_input = 1
       end
 
-      vim.cmd('stopinsert')
       if vim.api.nvim_win_is_valid(state.input_wins[state.active_input]) then
         vim.api.nvim_set_current_win(state.input_wins[state.active_input])
         local buf_lines = vim.api.nvim_buf_get_lines(state.input_bufs[state.active_input], 0, 1, false)
         vim.api.nvim_win_set_cursor(state.input_wins[state.active_input], {1, #(buf_lines[1] or "")})
-        vim.cmd('startinsert!')
+        -- Use vim.schedule to ensure insert mode is re-entered after window switch
+        vim.schedule(function()
+          vim.cmd('startinsert!')
+        end)
       end
     end
 
@@ -149,32 +151,54 @@ local function setup_keymaps()
         state.active_input = 3
       end
 
-      vim.cmd('stopinsert')
       if vim.api.nvim_win_is_valid(state.input_wins[state.active_input]) then
         vim.api.nvim_set_current_win(state.input_wins[state.active_input])
         local buf_lines = vim.api.nvim_buf_get_lines(state.input_bufs[state.active_input], 0, 1, false)
         vim.api.nvim_win_set_cursor(state.input_wins[state.active_input], {1, #(buf_lines[1] or "")})
-        vim.cmd('startinsert!')
+        -- Use vim.schedule to ensure insert mode is re-entered after window switch
+        vim.schedule(function()
+          vim.cmd('startinsert!')
+        end)
       end
     end
 
     for idx, buf in ipairs(state.input_bufs) do
-      -- Down arrow to switch to next window (circular)
+      -- Down arrow to switch to next window (circular) - insert mode
       vim.keymap.set('i', '<Down>', switch_window_down, {
         buffer = buf,
         noremap = true,
         silent = true
       })
 
-      -- Up arrow to switch to previous window (circular)
+      -- Up arrow to switch to previous window (circular) - insert mode
       vim.keymap.set('i', '<Up>', switch_window_up, {
         buffer = buf,
         noremap = true,
         silent = true
       })
 
-      -- Ctrl+n as alternative to Down
+      -- Down arrow - normal mode
+      vim.keymap.set('n', '<Down>', switch_window_down, {
+        buffer = buf,
+        noremap = true,
+        silent = true
+      })
+
+      -- Up arrow - normal mode
+      vim.keymap.set('n', '<Up>', switch_window_up, {
+        buffer = buf,
+        noremap = true,
+        silent = true
+      })
+
+      -- Ctrl+n as alternative to Down (both modes)
       vim.keymap.set('i', '<C-n>', switch_window_down, {
+        buffer = buf,
+        noremap = true,
+        silent = true
+      })
+
+      vim.keymap.set('n', '<C-n>', switch_window_down, {
         buffer = buf,
         noremap = true,
         silent = true
