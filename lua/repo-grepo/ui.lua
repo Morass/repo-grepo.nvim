@@ -110,12 +110,25 @@ function M.render_input_screen()
     "",
     "  Shortcuts: Enter = Search | Esc/q = Close | Up/Down = Switch Input",
     "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "  Note: Pattern uses 'match' (anywhere in line), Include/Exclude use 'fullmatch' (filename)",
   }
 
   vim.api.nvim_buf_set_option(state.main_buf, 'modifiable', true)
   vim.api.nvim_buf_set_lines(state.main_buf, 0, -1, false, lines)
   vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoTitle', 1, 0, -1)
   vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoGray', 3, 0, -1)
+  vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoGray', #lines - 1, 0, -1)  -- Note line
   vim.api.nvim_buf_set_option(state.main_buf, 'modifiable', false)
 
   -- Create 3 input sub-windows
@@ -154,7 +167,7 @@ function M.render_input_screen()
     start_col,
     input_width,
     input_height,
-    " Banned Files/Folders (comma-separated globs) "
+    " Excluded Files/Folders (comma-separated globs) "
   )
   vim.api.nvim_buf_set_lines(buf3, 0, -1, false, {state.banned_files})
   table.insert(state.input_bufs, buf3)
@@ -229,7 +242,7 @@ function M.render_file_list()
     table.insert(lines, "")
   else
     for i, match in ipairs(state.file_matches) do
-      local line = string.format("  [%d] %s", match.count, match.path)
+      local line = string.format("  [%d]  %s", match.count, match.path)  -- Extra space after count
       table.insert(lines, line)
     end
   end
@@ -237,14 +250,19 @@ function M.render_file_list()
   vim.api.nvim_buf_set_option(state.main_buf, 'modifiable', true)
   vim.api.nvim_buf_set_lines(state.main_buf, 0, -1, false, lines)
 
-  vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoTitle', 1, 0, -1)
+  -- Highlight header with pattern in different color
+  local header_text = "  Files matching pattern: '"
+  vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoTitle', 1, 0, #header_text)
+  vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoYellow', 1, #header_text, #header_text + #state.pattern)
+  vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoTitle', 1, #header_text + #state.pattern, -1)
+
   vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoGray', 3, 0, -1)
 
   for i = 1, #state.file_matches do
     local line_idx = 5 + i - 1
     local count_str = "[" .. tostring(state.file_matches[i].count) .. "]"
     local count_end = 2 + #count_str
-    local path_start = count_end + 1  -- Space after count
+    local path_start = count_end + 2  -- Two spaces after count
     vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoYellow', line_idx, 2, count_end)
     vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoGreen', line_idx, path_start, -1)
   end
@@ -263,6 +281,15 @@ end
 function M.render_line_list()
   state.mode = "line_list"
 
+  -- Find max line number for padding
+  local max_line_num = 0
+  for _, match in ipairs(state.line_matches) do
+    if match.line_number > max_line_num then
+      max_line_num = match.line_number
+    end
+  end
+  local padding_width = #tostring(max_line_num)
+
   local lines = {
     "",
     "  File: " .. state.current_file,
@@ -277,7 +304,8 @@ function M.render_line_list()
     table.insert(lines, "")
   else
     for _, match in ipairs(state.line_matches) do
-      local line = string.format("  %d: %s", match.line_number, match.content)
+      local line_num_str = string.format("%" .. padding_width .. "d", match.line_number)
+      local line = string.format("  %s: %s", line_num_str, match.content)
       table.insert(lines, line)
     end
   end
@@ -285,13 +313,41 @@ function M.render_line_list()
   vim.api.nvim_buf_set_option(state.main_buf, 'modifiable', true)
   vim.api.nvim_buf_set_lines(state.main_buf, 0, -1, false, lines)
 
-  vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoCyan', 1, 0, -1)
+  -- Highlight header with filename in different color
+  local header_prefix = "  File: "
+  vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoCyan', 1, 0, #header_prefix)
+  vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoGreen', 1, #header_prefix, -1)
+
   vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoGray', 3, 0, -1)
+
+  -- Compile pattern regex for highlighting
+  local ok, pattern_regex = pcall(vim.regex, state.pattern)
 
   for i = 1, #state.line_matches do
     local line_idx = 5 + i - 1
-    local line_num_str = tostring(state.line_matches[i].line_number) .. ":"
-    vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoMagenta', line_idx, 2, 2 + #line_num_str)
+    local line_num_str = string.format("%" .. padding_width .. "d", state.line_matches[i].line_number)
+    local colon_pos = 2 + #line_num_str
+    local content_start = colon_pos + 2  -- ": "
+
+    -- Highlight line number
+    vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoMagenta', line_idx, 2, colon_pos + 1)
+
+    -- Highlight pattern matches in the line content
+    if ok and pattern_regex then
+      local line_content = state.line_matches[i].content
+      local match_start, match_end = pattern_regex:match_str(line_content)
+      while match_start do
+        vim.api.nvim_buf_add_highlight(
+          state.main_buf,
+          -1,
+          'RepoGrepoYellow',
+          line_idx,
+          content_start + match_start,
+          content_start + match_end
+        )
+        match_start, match_end = pattern_regex:match_str(line_content, match_end)
+      end
+    end
   end
 
   vim.api.nvim_buf_set_option(state.main_buf, 'modifiable', false)
