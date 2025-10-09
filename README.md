@@ -10,6 +10,8 @@ A repository-wide grep plugin for Neovim with a multi-window interface.
 
 > **Note**: This is a hobby project designed for small to medium-sized repositories. The plugin uses terminal colors for display and may be resource-intensive on large repositories with many files. No caching or optimizations are applied - each search scans files fresh.
 
+> **⚠️ Early Development**: This plugin is not extensively tested yet. If you encounter bugs or unexpected behavior, please [report them](https://github.com/Morass/repo-grepo.nvim/issues) so they can be fixed!
+
 ## Features
 
 - **C++ Backend**: File traversal and regex matching using C++
