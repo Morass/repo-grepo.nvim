@@ -108,7 +108,7 @@ function M.render_input_screen()
     "",
     "  Repo Grepo - Fast Repository Search",
     "",
-    "  Shortcuts: Enter = Search | Esc/q = Close | Tab/Ctrl+n = Switch Input",
+    "  Shortcuts: Enter = Search | Esc/q = Close | Up/Down = Switch Input",
     "",
   }
 

@@ -104,7 +104,7 @@ local function setup_keymaps()
 
   -- Input mode keymaps
   if state.mode == "input" then
-    local function switch_window()
+    local function switch_window_down()
       -- Save current input
       local current_buf = state.input_bufs[state.active_input]
       local lines = vim.api.nvim_buf_get_lines(current_buf, 0, -1, false)
@@ -116,7 +116,7 @@ local function setup_keymaps()
         state.banned_files = lines[1] or ""
       end
 
-      -- Switch to next input
+      -- Switch to next input (circular)
       state.active_input = state.active_input + 1
       if state.active_input > 3 then
         state.active_input = 1
@@ -131,16 +131,50 @@ local function setup_keymaps()
       end
     end
 
+    local function switch_window_up()
+      -- Save current input
+      local current_buf = state.input_bufs[state.active_input]
+      local lines = vim.api.nvim_buf_get_lines(current_buf, 0, -1, false)
+      if state.active_input == 1 then
+        state.pattern = lines[1] or ""
+      elseif state.active_input == 2 then
+        state.include_files = lines[1] or ""
+      elseif state.active_input == 3 then
+        state.banned_files = lines[1] or ""
+      end
+
+      -- Switch to previous input (circular)
+      state.active_input = state.active_input - 1
+      if state.active_input < 1 then
+        state.active_input = 3
+      end
+
+      vim.cmd('stopinsert')
+      if vim.api.nvim_win_is_valid(state.input_wins[state.active_input]) then
+        vim.api.nvim_set_current_win(state.input_wins[state.active_input])
+        local buf_lines = vim.api.nvim_buf_get_lines(state.input_bufs[state.active_input], 0, 1, false)
+        vim.api.nvim_win_set_cursor(state.input_wins[state.active_input], {1, #(buf_lines[1] or "")})
+        vim.cmd('startinsert!')
+      end
+    end
+
     for idx, buf in ipairs(state.input_bufs) do
-      -- Ctrl+n to switch windows (avoids Tab conflicts)
-      vim.keymap.set('i', '<C-n>', switch_window, {
+      -- Down arrow to switch to next window (circular)
+      vim.keymap.set('i', '<Down>', switch_window_down, {
         buffer = buf,
         noremap = true,
         silent = true
       })
 
-      -- Tab to switch - use vim.keymap.set for better priority
-      vim.keymap.set('i', '<Tab>', switch_window, {
+      -- Up arrow to switch to previous window (circular)
+      vim.keymap.set('i', '<Up>', switch_window_up, {
+        buffer = buf,
+        noremap = true,
+        silent = true
+      })
+
+      -- Ctrl+n as alternative to Down
+      vim.keymap.set('i', '<C-n>', switch_window_down, {
         buffer = buf,
         noremap = true,
         silent = true

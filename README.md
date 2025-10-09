@@ -62,7 +62,8 @@ The plugin opens with three input windows:
 
 #### Input Screen
 - `Enter` - Start search
-- `Tab` or `Ctrl+n` - Switch between input windows
+- `Up`/`Down` arrows - Switch between input windows (circular)
+- `Ctrl+n` - Alternative to Down arrow
 - `Esc` or `q` - Close plugin
 
 #### File List Screen
