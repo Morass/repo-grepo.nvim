@@ -32,7 +32,7 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, 'RepoGrepoMagenta', { ctermfg = 201 })   -- magenta
 end
 
-local function create_input_window(row, col, width, height, title)
+local function create_input_window(row, col, width, height, title, footer)
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_option(buf, 'bufhidden', 'wipe')
   vim.api.nvim_buf_set_option(buf, 'modifiable', true)
@@ -49,6 +49,11 @@ local function create_input_window(row, col, width, height, title)
     title_pos = 'center',
     zindex = 51  -- Higher than main window
   }
+
+  if footer then
+    opts.footer = {{footer, 'RepoGrepoGray'}}
+    opts.footer_pos = 'center'
+  end
 
   local win = vim.api.nvim_open_win(buf, false, opts)
 
@@ -130,7 +135,8 @@ function M.render_input_screen()
     start_col,
     input_width,
     input_height,
-    " Search Pattern (Regex) "
+    " Search Pattern (Regex) ",
+    " uses 'match' (anywhere in line) "
   )
   vim.api.nvim_buf_set_lines(buf1, 0, -1, false, {state.pattern})
   table.insert(state.input_bufs, buf1)
@@ -142,7 +148,8 @@ function M.render_input_screen()
     start_col,
     input_width,
     input_height,
-    " Include Files (comma-separated globs, e.g., *.py, empty = all) "
+    " Include Files (comma-separated globs, e.g., *.py, empty = all) ",
+    " uses 'fullmatch' (filename only) "
   )
   vim.api.nvim_buf_set_lines(buf2, 0, -1, false, {state.include_files})
   table.insert(state.input_bufs, buf2)
@@ -154,23 +161,12 @@ function M.render_input_screen()
     start_col,
     input_width,
     input_height,
-    " Excluded Files/Folders (comma-separated globs) "
+    " Excluded Files/Folders (comma-separated globs) ",
+    " uses 'fullmatch' (filename only) "
   )
   vim.api.nvim_buf_set_lines(buf3, 0, -1, false, {state.banned_files})
   table.insert(state.input_bufs, buf3)
   table.insert(state.input_wins, win3)
-
-  -- Add note below the input windows
-  local note_row = start_row + (input_height + 2) * 3 + 1
-  local note_lines = vim.api.nvim_buf_get_lines(state.main_buf, 0, -1, false)
-  while #note_lines < note_row + 2 do
-    table.insert(note_lines, "")
-  end
-  note_lines[note_row + 1] = "  Note: Pattern uses 'match' (anywhere in line), Include/Exclude use 'fullmatch' (filename)"
-  vim.api.nvim_buf_set_option(state.main_buf, 'modifiable', true)
-  vim.api.nvim_buf_set_lines(state.main_buf, 0, -1, false, note_lines)
-  vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoGray', note_row, 0, -1)
-  vim.api.nvim_buf_set_option(state.main_buf, 'modifiable', false)
 
   -- Force redraw to show all windows
   vim.cmd('redraw')
@@ -231,7 +227,7 @@ function M.render_file_list()
     "",
     "  Files matching pattern: '" .. state.pattern .. "'",
     "",
-    "  Enter = View Lines | Esc = Back to Search",
+    "  Enter = View Lines | Esc/q = Back to Search",
     "",
   }
 
@@ -251,7 +247,7 @@ function M.render_file_list()
 
     for i, match in ipairs(state.file_matches) do
       local count_str = string.format("%" .. count_width .. "d", match.count)
-      local line = string.format("  [%s]  %s", count_str, match.path)
+      local line = string.format("  [%s] %s", count_str, match.path)
       table.insert(lines, line)
     end
   end
@@ -280,7 +276,7 @@ function M.render_file_list()
     local line_idx = 5 + i - 1
     local count_str = "[" .. string.format("%" .. count_width .. "d", state.file_matches[i].count) .. "]"
     local count_end = 2 + #count_str
-    local path_start = count_end + 2  -- Two spaces after count
+    local path_start = count_end + 1  -- One space after count
     vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoYellow', line_idx, 2, count_end)
     vim.api.nvim_buf_add_highlight(state.main_buf, -1, 'RepoGrepoGreen', line_idx, path_start, -1)
   end
@@ -313,7 +309,7 @@ function M.render_line_list()
     "",
     "  File: " .. state.current_file,
     "",
-    "  Enter = Jump to Line | Esc = Back to Files",
+    "  Enter = Jump to Line | Esc/q = Back to Files",
     "",
   }
 
@@ -355,7 +351,8 @@ function M.render_line_list()
     if ok and pattern_regex then
       local line_content = state.line_matches[i].content
       local match_start, match_end = pattern_regex:match_str(line_content)
-      while match_start do
+      local last_end = -1  -- Track last match end to prevent infinite loops
+      while match_start and match_end > last_end do
         vim.api.nvim_buf_add_highlight(
           state.main_buf,
           -1,
@@ -364,6 +361,7 @@ function M.render_line_list()
           content_start + match_start,
           content_start + match_end
         )
+        last_end = match_end
         match_start, match_end = pattern_regex:match_str(line_content, match_end)
       end
     end
