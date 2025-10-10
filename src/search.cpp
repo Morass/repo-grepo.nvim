@@ -62,17 +62,12 @@ std::string glob_to_regex(const std::string& glob) {
     return regex;
 }
 
-bool should_skip_path(const std::string& path, const std::vector<std::regex>& banned_regexes) {
-    for (const auto& regex : banned_regexes) {
-        if (std::regex_search(path, regex)) {
-            return true;
-        }
-    }
-    return false;
+bool should_skip_path(const std::string& path, const std::regex& banned_regex) {
+    return std::regex_search(path, banned_regex);
 }
 
-bool should_include_file(const std::string& path, const std::vector<std::regex>& include_regexes) {
-    if (include_regexes.empty()) {
+bool should_include_file(const std::string& path, const std::regex* include_regex) {
+    if (!include_regex) {
         return true;
     }
 
@@ -80,45 +75,46 @@ bool should_include_file(const std::string& path, const std::vector<std::regex>&
     const size_t last_slash = path.find_last_of("/\\");
     const std::string filename = (last_slash != std::string::npos) ? path.substr(last_slash + 1) : path;
 
-    for (const auto& regex : include_regexes) {
-        if (std::regex_match(filename, regex)) {
-            return true;
-        }
-    }
-    return false;
+    return std::regex_match(filename, *include_regex);
 }
 
-std::vector<std::regex> parse_regex_list(const std::string& input, bool use_glob = true) {
-    std::vector<std::regex> result;
+// Build a single combined regex from comma-separated patterns using OR (|)
+std::regex* build_combined_regex(const std::string& input, bool use_glob = true) {
     if (input.empty()) {
-        return result;
+        return nullptr;
     }
 
+    std::string combined_pattern;
     std::string current;
+
     for (char c : input) {
         if (c == ',') {
             if (!current.empty()) {
-                try {
-                    std::string pattern = use_glob ? glob_to_regex(current) : current;
-                    result.push_back(std::regex(pattern, std::regex::ECMAScript | std::regex::optimize));
-                } catch (const std::regex_error&) {
-                    // Skip invalid regex
+                if (!combined_pattern.empty()) {
+                    combined_pattern += "|";
                 }
+                std::string pattern = use_glob ? glob_to_regex(current) : current;
+                combined_pattern += "(" + pattern + ")";
                 current.clear();
             }
         } else {
             current += c;
         }
     }
+
     if (!current.empty()) {
-        try {
-            std::string pattern = use_glob ? glob_to_regex(current) : current;
-            result.push_back(std::regex(pattern, std::regex::ECMAScript | std::regex::optimize));
-        } catch (const std::regex_error&) {
-            // Skip invalid regex
+        if (!combined_pattern.empty()) {
+            combined_pattern += "|";
         }
+        std::string pattern = use_glob ? glob_to_regex(current) : current;
+        combined_pattern += "(" + pattern + ")";
     }
-    return result;
+
+    try {
+        return new std::regex(combined_pattern, std::regex::ECMAScript | std::regex::optimize);
+    } catch (const std::regex_error&) {
+        return nullptr;
+    }
 }
 
 // Thread-safe queue for work distribution
@@ -176,8 +172,9 @@ void scan_files(const std::string& root_path,
         return;
     }
 
-    auto include_regexes = parse_regex_list(include_str, true);  // Use glob matching
-    auto banned_regexes = parse_regex_list(banned_str, true);   // Use glob matching
+    // Build combined regexes for better performance (one check instead of loop)
+    std::regex* include_regex = build_combined_regex(include_str, true);
+    std::regex* banned_regex = build_combined_regex(banned_str, true);
 
     // Phase 1: Directory discovery and file collection
     // Collect all files to process (single-threaded to avoid complexity)
@@ -200,7 +197,7 @@ void scan_files(const std::string& root_path,
 
             // Skip banned directories early (don't recurse into them)
             if (entry.is_directory(ec)) {
-                if (should_skip_path(relative_path, banned_regexes)) {
+                if (banned_regex && should_skip_path(relative_path, *banned_regex)) {
                     it.disable_recursion_pending();
                 }
                 it.increment(ec);
@@ -213,13 +210,13 @@ void scan_files(const std::string& root_path,
             }
 
             // Check if path should be skipped
-            if (should_skip_path(relative_path, banned_regexes)) {
+            if (banned_regex && should_skip_path(relative_path, *banned_regex)) {
                 it.increment(ec);
                 continue;
             }
 
             // Check if file should be included
-            if (should_include_file(relative_path, include_regexes)) {
+            if (should_include_file(relative_path, include_regex)) {
                 files_to_process.push_back({entry.path(), relative_path});
             }
 
@@ -227,6 +224,8 @@ void scan_files(const std::string& root_path,
         }
     } catch (const fs::filesystem_error& e) {
         std::cerr << "ERROR: Filesystem error: " << e.what() << std::endl;
+        delete include_regex;
+        delete banned_regex;
         return;
     }
 
@@ -303,6 +302,10 @@ void scan_files(const std::string& root_path,
     for (const auto& match : matches) {
         std::cout << match.path << "|" << match.count << std::endl;
     }
+
+    // Cleanup
+    delete include_regex;
+    delete banned_regex;
 }
 
 void scan_file_lines(const std::string& file_path, const std::string& pattern_str) {
