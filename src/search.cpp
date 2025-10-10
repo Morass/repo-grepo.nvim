@@ -13,7 +13,7 @@
 
 namespace fs = std::filesystem;
 
-constexpr int THREAD_POOL_SIZE = 10;
+constexpr int THREAD_POOL_SIZE = 20;
 
 struct FileMatch {
     std::string path;
@@ -176,57 +176,75 @@ void scan_files(const std::string& root_path,
     std::regex* include_regex = build_combined_regex(include_str, true);
     std::regex* banned_regex = build_combined_regex(banned_str, true);
 
-    // Phase 1: Directory discovery and file collection
-    // Collect all files to process (single-threaded to avoid complexity)
+    // Phase 1: PARALLEL directory discovery
     std::vector<std::pair<fs::path, std::string>> files_to_process;
+    std::mutex files_mutex;
 
-    try {
-        for (auto it = fs::recursive_directory_iterator(root_path,
-                fs::directory_options::skip_permission_denied);
-             it != fs::recursive_directory_iterator(); ) {
+    ThreadSafeQueue<fs::path> dirs_to_explore;
+    std::atomic<int> active_explorers{0};
 
-            std::error_code ec;
-            const auto& entry = *it;
-            std::string relative_path = fs::relative(entry.path(), root_path, ec).string();
+    dirs_to_explore.push(fs::path(root_path));
 
-            // Skip entries with errors (including symlink loops)
-            if (ec) {
-                it.increment(ec);
-                continue;
-            }
+    // Start explorer threads
+    std::vector<std::thread> explorer_threads;
+    for (int i = 0; i < THREAD_POOL_SIZE; ++i) {
+        explorer_threads.emplace_back([&]() {
+            // Thread-local batch to reduce lock contention
+            std::vector<std::pair<fs::path, std::string>> local_files;
+            local_files.reserve(100);
 
-            // Skip banned directories early (don't recurse into them)
-            if (entry.is_directory(ec)) {
-                if (banned_regex && should_skip_path(relative_path, *banned_regex)) {
-                    it.disable_recursion_pending();
+            fs::path dir;
+            while (dirs_to_explore.pop(dir)) {
+                active_explorers++;
+
+                try {
+                    std::error_code ec;
+                    for (const auto& entry : fs::directory_iterator(dir,
+                            fs::directory_options::skip_permission_denied, ec)) {
+
+                        if (ec) continue;
+
+                        std::string relative_path = fs::relative(entry.path(), root_path, ec).string();
+                        if (ec) continue;
+
+                        // Check if banned
+                        if (banned_regex && should_skip_path(relative_path, *banned_regex)) {
+                            continue;
+                        }
+
+                        if (entry.is_directory(ec) && !ec) {
+                            dirs_to_explore.push(entry.path());
+                        } else if (entry.is_regular_file(ec) && !ec) {
+                            if (should_include_file(relative_path, include_regex)) {
+                                local_files.push_back({entry.path(), std::move(relative_path)});
+                            }
+                        }
+                    }
+                } catch (const fs::filesystem_error&) {
+                    // Skip directories with errors
                 }
-                it.increment(ec);
-                continue;
+
+                active_explorers--;
             }
 
-            if (!entry.is_regular_file(ec) || ec) {
-                it.increment(ec);
-                continue;
+            // Merge thread-local results into shared vector
+            if (!local_files.empty()) {
+                std::lock_guard<std::mutex> lock(files_mutex);
+                files_to_process.insert(files_to_process.end(),
+                                      std::make_move_iterator(local_files.begin()),
+                                      std::make_move_iterator(local_files.end()));
             }
+        });
+    }
 
-            // Check if path should be skipped
-            if (banned_regex && should_skip_path(relative_path, *banned_regex)) {
-                it.increment(ec);
-                continue;
-            }
+    // Wait until all directories explored
+    while (dirs_to_explore.size() > 0 || active_explorers > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
 
-            // Check if file should be included
-            if (should_include_file(relative_path, include_regex)) {
-                files_to_process.push_back({entry.path(), relative_path});
-            }
-
-            it.increment(ec);
-        }
-    } catch (const fs::filesystem_error& e) {
-        std::cerr << "ERROR: Filesystem error: " << e.what() << std::endl;
-        delete include_regex;
-        delete banned_regex;
-        return;
+    dirs_to_explore.set_done();
+    for (auto& t : explorer_threads) {
+        t.join();
     }
 
     // Phase 2: Parallel file processing

@@ -91,7 +91,7 @@ Set default values in your `init.vim` or `init.lua`:
 
 ```vim
 " Default banned files/folders (comma-separated glob patterns)
-let g:repo_grepo_banned_files = '*venv*,*__pycache__*,*.git*,*node_modules*,*.pyc,*.pyo,*.pyd,*.so,*.dylib,*.dll,*.mypy_cache*,*.pytest_cache*,*.ruff_cache*,.DS_Store,*.egg-info*,*.tox*,*.coverage*'
+let g:repo_grepo_banned_files = '*venv*,__pycache__,.git,.mypy_cache,.tox'
 
 " Default include files (comma-separated glob patterns, empty = all)
 let g:repo_grepo_include_files = ''
@@ -100,7 +100,7 @@ let g:repo_grepo_include_files = ''
 Or in Lua:
 
 ```lua
-vim.g.repo_grepo_banned_files = '*venv*,*__pycache__*,*.git*,*node_modules*,*.pyc,*.pyo,*.pyd,*.so,*.dylib,*.dll,*.mypy_cache*,*.pytest_cache*,*.ruff_cache*,.DS_Store,*.egg-info*,*.tox*,*.coverage*'
+vim.g.repo_grepo_banned_files = '*venv*,__pycache__,.git,.mypy_cache,.tox'
 vim.g.repo_grepo_include_files = ''
 ```
 
@@ -115,12 +115,15 @@ vim.g.repo_grepo_include_files = ''
 ## Performance Notes
 
 The C++ backend uses:
+- Multi-threaded parallel processing with a 20-thread pool
+- Parallel directory discovery for fast repository traversal
 - Regex compilation with `std::regex::optimize`
 - Filesystem traversal with `std::filesystem`
 - Binary file detection to skip non-text files
 - Pattern-based filtering to reduce files scanned
+- Thread-local batching to minimize synchronization overhead
 
-**Important**: The search is currently single-threaded and processes files sequentially. On large repositories, searches may take some time and could be resource-intensive. Consider using specific include/exclude patterns to narrow down the search scope.
+The search engine is optimized for both flat and deeply nested directory structures, utilizing parallel processing throughout the entire pipeline.
 
 ## License
 
