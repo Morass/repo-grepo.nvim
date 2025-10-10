@@ -67,7 +67,7 @@ The plugin opens with three input windows:
 
 1. **Search Pattern**: Enter your regex pattern (required)
 2. **Include Files**: Comma-separated regexes to filter files (optional, empty = all files)
-3. **Banned Files/Folders**: Comma-separated regexes to exclude files/folders (default: `*venv*,__pycache__`)
+3. **Banned Files/Folders**: Comma-separated glob patterns to exclude files/folders (default excludes common Python/Git cache and temp files)
 
 ### Shortcuts
 
@@ -90,17 +90,17 @@ The plugin opens with three input windows:
 Set default values in your `init.vim` or `init.lua`:
 
 ```vim
-" Default banned files/folders (comma-separated regexes)
-let g:repo_grepo_banned_files = '*venv*,__pycache__,*.pyc,node_modules'
+" Default banned files/folders (comma-separated glob patterns)
+let g:repo_grepo_banned_files = '*venv*,*__pycache__*,.git,*node_modules*,*.pyc,*.pyo,*.pyd,*.so,*.dylib,*.dll,*.mypy_cache*,*.pytest_cache*,*.ruff_cache*,.DS_Store,*.egg-info*,*.tox*,*.coverage*'
 
-" Default include files (comma-separated regexes, empty = all)
+" Default include files (comma-separated glob patterns, empty = all)
 let g:repo_grepo_include_files = ''
 ```
 
 Or in Lua:
 
 ```lua
-vim.g.repo_grepo_banned_files = '*venv*,__pycache__,*.pyc,node_modules'
+vim.g.repo_grepo_banned_files = '*venv*,*__pycache__*,.git,*node_modules*,*.pyc,*.pyo,*.pyd,*.so,*.dylib,*.dll,*.mypy_cache*,*.pytest_cache*,*.ruff_cache*,.DS_Store,*.egg-info*,*.tox*,*.coverage*'
 vim.g.repo_grepo_include_files = ''
 ```
 

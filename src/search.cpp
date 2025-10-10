@@ -25,6 +25,11 @@ struct LineMatch {
     std::string content;
 };
 
+struct RegexPattern {
+    std::regex regex;
+    bool has_wildcards;  // If true, use regex_search; if false, use component matching
+};
+
 // Convert glob pattern to regex pattern
 std::string glob_to_regex(const std::string& glob) {
     std::string regex;
@@ -62,10 +67,38 @@ std::string glob_to_regex(const std::string& glob) {
     return regex;
 }
 
-bool should_skip_path(const std::string& path, const std::vector<std::regex>& banned_regexes) {
-    for (const auto& regex : banned_regexes) {
-        if (std::regex_search(path, regex)) {
-            return true;
+bool should_skip_path(const std::string& path, const std::vector<RegexPattern>& banned_patterns) {
+    // Split path into components to check each one
+    std::vector<std::string> components;
+    std::string current;
+    for (char c : path) {
+        if (c == '/' || c == '\\') {
+            if (!current.empty()) {
+                components.push_back(current);
+                current.clear();
+            }
+        } else {
+            current += c;
+        }
+    }
+    if (!current.empty()) {
+        components.push_back(current);
+    }
+
+    // Check each pattern
+    for (const auto& pattern : banned_patterns) {
+        if (pattern.has_wildcards) {
+            // For wildcarded patterns, check the full path
+            if (std::regex_search(path, pattern.regex)) {
+                return true;
+            }
+        } else {
+            // For exact patterns (like ".git"), check each path component
+            for (const auto& component : components) {
+                if (std::regex_match(component, pattern.regex)) {
+                    return true;
+                }
+            }
         }
     }
     return false;
@@ -88,7 +121,7 @@ bool should_include_file(const std::string& path, const std::vector<std::regex>&
     return false;
 }
 
-std::vector<std::regex> parse_regex_list(const std::string& input, bool use_glob = true) {
+std::vector<std::regex> parse_simple_regex_list(const std::string& input, bool use_glob = true) {
     std::vector<std::regex> result;
     if (input.empty()) {
         return result;
@@ -114,6 +147,43 @@ std::vector<std::regex> parse_regex_list(const std::string& input, bool use_glob
         try {
             std::string pattern = use_glob ? glob_to_regex(current) : current;
             result.push_back(std::regex(pattern, std::regex::ECMAScript | std::regex::optimize));
+        } catch (const std::regex_error&) {
+            // Skip invalid regex
+        }
+    }
+    return result;
+}
+
+std::vector<RegexPattern> parse_pattern_list(const std::string& input, bool use_glob = true) {
+    std::vector<RegexPattern> result;
+    if (input.empty()) {
+        return result;
+    }
+
+    std::string current;
+    for (char c : input) {
+        if (c == ',') {
+            if (!current.empty()) {
+                try {
+                    bool has_wildcards = (current.find('*') != std::string::npos ||
+                                          current.find('?') != std::string::npos);
+                    std::string pattern = use_glob ? glob_to_regex(current) : current;
+                    result.push_back({std::regex(pattern, std::regex::ECMAScript | std::regex::optimize), has_wildcards});
+                } catch (const std::regex_error&) {
+                    // Skip invalid regex
+                }
+                current.clear();
+            }
+        } else {
+            current += c;
+        }
+    }
+    if (!current.empty()) {
+        try {
+            bool has_wildcards = (current.find('*') != std::string::npos ||
+                                  current.find('?') != std::string::npos);
+            std::string pattern = use_glob ? glob_to_regex(current) : current;
+            result.push_back({std::regex(pattern, std::regex::ECMAScript | std::regex::optimize), has_wildcards});
         } catch (const std::regex_error&) {
             // Skip invalid regex
         }
@@ -176,75 +246,64 @@ void scan_files(const std::string& root_path,
         return;
     }
 
-    auto include_regexes = parse_regex_list(include_str, true);  // Use glob matching
-    auto banned_regexes = parse_regex_list(banned_str, true);   // Use glob matching
+    auto include_regexes = parse_simple_regex_list(include_str, true);  // Use glob matching
+    auto banned_patterns = parse_pattern_list(banned_str, true);   // Use glob matching with wildcard tracking
 
-    // Phase 1: Parallel directory discovery
-    // Use a work queue where threads can pick up directories to explore
-    ThreadSafeQueue<fs::path> dir_queue;
-    ThreadSafeQueue<std::pair<fs::path, std::string>> file_queue;
-    std::atomic<int> active_discovery_threads{0};
+    // Phase 1: Directory discovery and file collection
+    // Collect all files to process (single-threaded to avoid complexity)
+    std::vector<std::pair<fs::path, std::string>> files_to_process;
 
-    dir_queue.push(fs::path(root_path));
+    try {
+        for (auto it = fs::recursive_directory_iterator(root_path,
+                fs::directory_options::skip_permission_denied);
+             it != fs::recursive_directory_iterator(); ) {
 
-    auto discovery_worker = [&]() {
-        fs::path current_dir;
-        while (dir_queue.pop(current_dir)) {
-            active_discovery_threads++;
+            std::error_code ec;
+            const auto& entry = *it;
+            std::string relative_path = fs::relative(entry.path(), root_path, ec).string();
 
-            try {
-                std::error_code ec;
-                for (const auto& entry : fs::directory_iterator(current_dir,
-                    fs::directory_options::skip_permission_denied, ec)) {
-
-                    if (ec) continue;
-
-                    std::string relative_path = fs::relative(entry.path(), root_path, ec).string();
-                    if (ec) continue;
-
-                    // Check if banned
-                    if (should_skip_path(relative_path, banned_regexes)) {
-                        continue;
-                    }
-
-                    if (entry.is_directory(ec) && !ec) {
-                        // Add subdirectory to work queue for parallel exploration
-                        dir_queue.push(entry.path());
-                    } else if (entry.is_regular_file(ec) && !ec) {
-                        // Check if file should be included
-                        if (should_include_file(relative_path, include_regexes)) {
-                            file_queue.push({entry.path(), relative_path});
-                        }
-                    }
-                }
-            } catch (const fs::filesystem_error&) {
-                // Skip directories with errors
+            // Skip entries with errors (including symlink loops)
+            if (ec) {
+                it.increment(ec);
+                continue;
             }
 
-            active_discovery_threads--;
+            // Skip banned directories early (don't recurse into them)
+            if (entry.is_directory(ec)) {
+                if (should_skip_path(relative_path, banned_patterns)) {
+                    it.disable_recursion_pending();
+                }
+                it.increment(ec);
+                continue;
+            }
+
+            if (!entry.is_regular_file(ec) || ec) {
+                it.increment(ec);
+                continue;
+            }
+
+            // Check if path should be skipped
+            if (should_skip_path(relative_path, banned_patterns)) {
+                it.increment(ec);
+                continue;
+            }
+
+            // Check if file should be included
+            if (should_include_file(relative_path, include_regexes)) {
+                files_to_process.push_back({entry.path(), relative_path});
+            }
+
+            it.increment(ec);
         }
-    };
-
-    // Start discovery threads
-    std::vector<std::thread> discovery_threads;
-    for (int i = 0; i < THREAD_POOL_SIZE; ++i) {
-        discovery_threads.emplace_back(discovery_worker);
-    }
-
-    // Wait until all directories are explored
-    // (queue empty and no threads actively discovering)
-    while (dir_queue.size() > 0 || active_discovery_threads > 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
-    dir_queue.set_done();
-    for (auto& t : discovery_threads) {
-        t.join();
+    } catch (const fs::filesystem_error& e) {
+        std::cerr << "ERROR: Filesystem error: " << e.what() << std::endl;
+        return;
     }
 
     // Phase 2: Parallel file processing
     std::vector<FileMatch> matches;
     std::mutex matches_mutex;
+    std::atomic<size_t> next_file_index{0};
 
     auto process_file = [&](const fs::path& file_path, const std::string& relative_path) {
         // Skip binary files
@@ -282,8 +341,12 @@ void scan_files(const std::string& root_path,
     };
 
     auto file_worker = [&]() {
-        std::pair<fs::path, std::string> file_info;
-        while (file_queue.pop(file_info)) {
+        while (true) {
+            size_t index = next_file_index.fetch_add(1);
+            if (index >= files_to_process.size()) {
+                break;
+            }
+            const auto& file_info = files_to_process[index];
             process_file(file_info.first, file_info.second);
         }
     };
@@ -294,7 +357,6 @@ void scan_files(const std::string& root_path,
         file_threads.emplace_back(file_worker);
     }
 
-    file_queue.set_done();
     for (auto& t : file_threads) {
         t.join();
     }
