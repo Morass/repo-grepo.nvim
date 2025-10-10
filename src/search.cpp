@@ -5,8 +5,15 @@
 #include <regex>
 #include <string>
 #include <vector>
+#include <thread>
+#include <mutex>
+#include <queue>
+#include <condition_variable>
+#include <atomic>
 
 namespace fs = std::filesystem;
+
+constexpr int THREAD_POOL_SIZE = 10;
 
 struct FileMatch {
     std::string path;
@@ -114,6 +121,48 @@ std::vector<std::regex> parse_regex_list(const std::string& input, bool use_glob
     return result;
 }
 
+// Thread-safe queue for work distribution
+template<typename T>
+class ThreadSafeQueue {
+private:
+    std::queue<T> queue_;
+    mutable std::mutex mutex_;
+    std::condition_variable cv_;
+    std::atomic<bool> done_{false};
+
+public:
+    void push(T item) {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            queue_.push(std::move(item));
+        }
+        cv_.notify_one();
+    }
+
+    bool pop(T& item) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        cv_.wait(lock, [this] { return !queue_.empty() || done_; });
+
+        if (queue_.empty()) {
+            return false;
+        }
+
+        item = std::move(queue_.front());
+        queue_.pop();
+        return true;
+    }
+
+    void set_done() {
+        done_ = true;
+        cv_.notify_all();
+    }
+
+    size_t size() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return queue_.size();
+    }
+};
+
 void scan_files(const std::string& root_path,
                 const std::string& pattern_str,
                 const std::string& include_str,
@@ -130,97 +179,124 @@ void scan_files(const std::string& root_path,
     auto include_regexes = parse_regex_list(include_str, true);  // Use glob matching
     auto banned_regexes = parse_regex_list(banned_str, true);   // Use glob matching
 
-    std::vector<FileMatch> matches;
+    // Phase 1: Parallel directory discovery
+    // Use a work queue where threads can pick up directories to explore
+    ThreadSafeQueue<fs::path> dir_queue;
+    ThreadSafeQueue<std::pair<fs::path, std::string>> file_queue;
+    std::atomic<int> active_discovery_threads{0};
 
-    try {
-        fs::recursive_directory_iterator iter(
-            root_path,
-            fs::directory_options::skip_permission_denied
-        );
-        fs::recursive_directory_iterator end;
+    dir_queue.push(fs::path(root_path));
 
-        for (; iter != end; ) {
-            std::error_code ec;
-            const auto& entry = *iter;
-            std::string relative_path = fs::relative(entry.path(), root_path, ec).string();
+    auto discovery_worker = [&]() {
+        fs::path current_dir;
+        while (dir_queue.pop(current_dir)) {
+            active_discovery_threads++;
 
-            // Skip entries with errors (including symlink loops)
-            if (ec) {
-                iter.increment(ec);
-                continue;
-            }
+            try {
+                std::error_code ec;
+                for (const auto& entry : fs::directory_iterator(current_dir,
+                    fs::directory_options::skip_permission_denied, ec)) {
 
-            // Skip banned directories early (don't recurse into them)
-            if (entry.is_directory(ec)) {
-                if (should_skip_path(relative_path, banned_regexes)) {
-                    iter.disable_recursion_pending();
+                    if (ec) continue;
+
+                    std::string relative_path = fs::relative(entry.path(), root_path, ec).string();
+                    if (ec) continue;
+
+                    // Check if banned
+                    if (should_skip_path(relative_path, banned_regexes)) {
+                        continue;
+                    }
+
+                    if (entry.is_directory(ec) && !ec) {
+                        // Add subdirectory to work queue for parallel exploration
+                        dir_queue.push(entry.path());
+                    } else if (entry.is_regular_file(ec) && !ec) {
+                        // Check if file should be included
+                        if (should_include_file(relative_path, include_regexes)) {
+                            file_queue.push({entry.path(), relative_path});
+                        }
+                    }
                 }
-                iter.increment(ec);
-                continue;
+            } catch (const fs::filesystem_error&) {
+                // Skip directories with errors
             }
 
-            if (!entry.is_regular_file(ec) || ec) {
-                iter.increment(ec);
-                continue;
-            }
-
-            // Check if path should be skipped
-            if (should_skip_path(relative_path, banned_regexes)) {
-                iter.increment(ec);
-                continue;
-            }
-
-            // Check if file should be included
-            if (!should_include_file(relative_path, include_regexes)) {
-                iter.increment(ec);
-                continue;
-            }
-
-            // Skip binary files by checking for null bytes in first 512 bytes
-            std::ifstream file(entry.path(), std::ios::binary);
-            if (!file.is_open()) {
-                iter.increment(ec);
-                continue;
-            }
-
-            constexpr size_t BUFFER_SIZE = 512;
-            char buffer[BUFFER_SIZE];
-            file.read(buffer, BUFFER_SIZE);
-            const std::streamsize bytes_read = file.gcount();
-
-            bool is_binary = false;
-            for (std::streamsize i = 0; i < bytes_read; ++i) {
-                if (buffer[i] == '\0') {
-                    is_binary = true;
-                    break;
-                }
-            }
-
-            if (is_binary) {
-                iter.increment(ec);
-                continue;
-            }
-
-            // Reset to beginning for actual search
-            file.seekg(0);
-
-            size_t match_count = 0;
-            std::string line;
-            while (std::getline(file, line)) {
-                if (std::regex_search(line, pattern)) {
-                    ++match_count;
-                }
-            }
-
-            if (match_count > 0) {
-                matches.push_back({relative_path, static_cast<int>(match_count)});
-            }
-
-            iter.increment(ec);
+            active_discovery_threads--;
         }
-    } catch (const fs::filesystem_error& e) {
-        std::cerr << "ERROR: Filesystem error: " << e.what() << std::endl;
-        return;
+    };
+
+    // Start discovery threads
+    std::vector<std::thread> discovery_threads;
+    for (int i = 0; i < THREAD_POOL_SIZE; ++i) {
+        discovery_threads.emplace_back(discovery_worker);
+    }
+
+    // Wait until all directories are explored
+    // (queue empty and no threads actively discovering)
+    while (dir_queue.size() > 0 || active_discovery_threads > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    dir_queue.set_done();
+    for (auto& t : discovery_threads) {
+        t.join();
+    }
+
+    // Phase 2: Parallel file processing
+    std::vector<FileMatch> matches;
+    std::mutex matches_mutex;
+
+    auto process_file = [&](const fs::path& file_path, const std::string& relative_path) {
+        // Skip binary files
+        std::ifstream file(file_path, std::ios::binary);
+        if (!file.is_open()) {
+            return;
+        }
+
+        constexpr size_t BUFFER_SIZE = 512;
+        char buffer[BUFFER_SIZE];
+        file.read(buffer, BUFFER_SIZE);
+        const std::streamsize bytes_read = file.gcount();
+
+        for (std::streamsize i = 0; i < bytes_read; ++i) {
+            if (buffer[i] == '\0') {
+                return; // Binary file
+            }
+        }
+
+        // Reset to beginning for actual search
+        file.seekg(0);
+
+        size_t match_count = 0;
+        std::string line;
+        while (std::getline(file, line)) {
+            if (std::regex_search(line, pattern)) {
+                ++match_count;
+            }
+        }
+
+        if (match_count > 0) {
+            std::lock_guard<std::mutex> lock(matches_mutex);
+            matches.push_back({relative_path, static_cast<int>(match_count)});
+        }
+    };
+
+    auto file_worker = [&]() {
+        std::pair<fs::path, std::string> file_info;
+        while (file_queue.pop(file_info)) {
+            process_file(file_info.first, file_info.second);
+        }
+    };
+
+    // Start file processing threads
+    std::vector<std::thread> file_threads;
+    for (int i = 0; i < THREAD_POOL_SIZE; ++i) {
+        file_threads.emplace_back(file_worker);
+    }
+
+    file_queue.set_done();
+    for (auto& t : file_threads) {
+        t.join();
     }
 
     // Sort by count (descending) then by path (ascending)
