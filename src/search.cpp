@@ -25,11 +25,6 @@ struct LineMatch {
     std::string content;
 };
 
-struct RegexPattern {
-    std::regex regex;
-    bool has_wildcards;  // If true, use regex_search; if false, use component matching
-};
-
 // Convert glob pattern to regex pattern
 std::string glob_to_regex(const std::string& glob) {
     std::string regex;
@@ -67,38 +62,10 @@ std::string glob_to_regex(const std::string& glob) {
     return regex;
 }
 
-bool should_skip_path(const std::string& path, const std::vector<RegexPattern>& banned_patterns) {
-    // Split path into components to check each one
-    std::vector<std::string> components;
-    std::string current;
-    for (char c : path) {
-        if (c == '/' || c == '\\') {
-            if (!current.empty()) {
-                components.push_back(current);
-                current.clear();
-            }
-        } else {
-            current += c;
-        }
-    }
-    if (!current.empty()) {
-        components.push_back(current);
-    }
-
-    // Check each pattern
-    for (const auto& pattern : banned_patterns) {
-        if (pattern.has_wildcards) {
-            // For wildcarded patterns, check the full path
-            if (std::regex_search(path, pattern.regex)) {
-                return true;
-            }
-        } else {
-            // For exact patterns (like ".git"), check each path component
-            for (const auto& component : components) {
-                if (std::regex_match(component, pattern.regex)) {
-                    return true;
-                }
-            }
+bool should_skip_path(const std::string& path, const std::vector<std::regex>& banned_regexes) {
+    for (const auto& regex : banned_regexes) {
+        if (std::regex_search(path, regex)) {
+            return true;
         }
     }
     return false;
@@ -121,7 +88,7 @@ bool should_include_file(const std::string& path, const std::vector<std::regex>&
     return false;
 }
 
-std::vector<std::regex> parse_simple_regex_list(const std::string& input, bool use_glob = true) {
+std::vector<std::regex> parse_regex_list(const std::string& input, bool use_glob = true) {
     std::vector<std::regex> result;
     if (input.empty()) {
         return result;
@@ -147,43 +114,6 @@ std::vector<std::regex> parse_simple_regex_list(const std::string& input, bool u
         try {
             std::string pattern = use_glob ? glob_to_regex(current) : current;
             result.push_back(std::regex(pattern, std::regex::ECMAScript | std::regex::optimize));
-        } catch (const std::regex_error&) {
-            // Skip invalid regex
-        }
-    }
-    return result;
-}
-
-std::vector<RegexPattern> parse_pattern_list(const std::string& input, bool use_glob = true) {
-    std::vector<RegexPattern> result;
-    if (input.empty()) {
-        return result;
-    }
-
-    std::string current;
-    for (char c : input) {
-        if (c == ',') {
-            if (!current.empty()) {
-                try {
-                    bool has_wildcards = (current.find('*') != std::string::npos ||
-                                          current.find('?') != std::string::npos);
-                    std::string pattern = use_glob ? glob_to_regex(current) : current;
-                    result.push_back({std::regex(pattern, std::regex::ECMAScript | std::regex::optimize), has_wildcards});
-                } catch (const std::regex_error&) {
-                    // Skip invalid regex
-                }
-                current.clear();
-            }
-        } else {
-            current += c;
-        }
-    }
-    if (!current.empty()) {
-        try {
-            bool has_wildcards = (current.find('*') != std::string::npos ||
-                                  current.find('?') != std::string::npos);
-            std::string pattern = use_glob ? glob_to_regex(current) : current;
-            result.push_back({std::regex(pattern, std::regex::ECMAScript | std::regex::optimize), has_wildcards});
         } catch (const std::regex_error&) {
             // Skip invalid regex
         }
@@ -246,8 +176,8 @@ void scan_files(const std::string& root_path,
         return;
     }
 
-    auto include_regexes = parse_simple_regex_list(include_str, true);  // Use glob matching
-    auto banned_patterns = parse_pattern_list(banned_str, true);   // Use glob matching with wildcard tracking
+    auto include_regexes = parse_regex_list(include_str, true);  // Use glob matching
+    auto banned_regexes = parse_regex_list(banned_str, true);   // Use glob matching
 
     // Phase 1: Directory discovery and file collection
     // Collect all files to process (single-threaded to avoid complexity)
@@ -270,7 +200,7 @@ void scan_files(const std::string& root_path,
 
             // Skip banned directories early (don't recurse into them)
             if (entry.is_directory(ec)) {
-                if (should_skip_path(relative_path, banned_patterns)) {
+                if (should_skip_path(relative_path, banned_regexes)) {
                     it.disable_recursion_pending();
                 }
                 it.increment(ec);
@@ -283,7 +213,7 @@ void scan_files(const std::string& root_path,
             }
 
             // Check if path should be skipped
-            if (should_skip_path(relative_path, banned_patterns)) {
+            if (should_skip_path(relative_path, banned_regexes)) {
                 it.increment(ec);
                 continue;
             }
