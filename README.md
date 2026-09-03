@@ -91,7 +91,7 @@ Set default values in your `init.vim` or `init.lua`:
 
 ```vim
 " Default banned files/folders (comma-separated glob patterns)
-let g:repo_grepo_banned_files = '*venv*,__pycache__,.git,.mypy_cache,.tox'
+let g:repo_grepo_banned_files = '*venv*,__pycache__,.git,node_modules,.mypy_cache,.pytest_cache,.tox'
 
 " Default include files (comma-separated glob patterns, empty = all)
 let g:repo_grepo_include_files = ''
@@ -100,7 +100,7 @@ let g:repo_grepo_include_files = ''
 Or in Lua:
 
 ```lua
-vim.g.repo_grepo_banned_files = '*venv*,__pycache__,.git,.mypy_cache,.tox'
+vim.g.repo_grepo_banned_files = '*venv*,__pycache__,.git,node_modules,.mypy_cache,.pytest_cache,.tox'
 vim.g.repo_grepo_include_files = ''
 ```
 

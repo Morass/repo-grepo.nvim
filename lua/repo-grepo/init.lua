@@ -449,10 +449,12 @@ function M.start()
 
   ui.setup()
 
-  -- Initialize with default banned files
+  -- Initialize with default banned files. The default itself lives in
+  -- plugin/repo-grepo.vim, which always sets g:repo_grepo_banned_files, so
+  -- there is nothing for a second list here to fall back to.
   local state = ui.get_state()
   if state.banned_files == "" then
-    state.banned_files = vim.g.repo_grepo_banned_files or "*venv*,*__pycache__*,*.git*,*node_modules*,*.pyc,*htmlcov*,*.mypy_cache*,*.pytest_cache*,*.tox*,*.coverage*,*.egg-info*,*dist*,*build*"
+    state.banned_files = vim.g.repo_grepo_banned_files or ""
   end
   if state.include_files == "" then
     state.include_files = vim.g.repo_grepo_include_files or ""
