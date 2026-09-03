@@ -4,12 +4,18 @@ local ui = require('repo-grepo.ui')
 local function get_git_root()
   local current_file = vim.fn.expand('%:p')
   local current_dir = vim.fn.fnamemodify(current_file, ':h')
+  if current_dir == nil or current_dir == '' then
+    current_dir = vim.fn.getcwd()
+  end
 
-  -- Try to find .git directory
+  -- Walk up looking for .git. It is a directory in an ordinary checkout but a
+  -- FILE in a linked worktree and in a submodule, where it holds a gitdir:
+  -- pointer -- so testing only isdirectory() reports "not a git repository"
+  -- in both of those.
   local dir = current_dir
   for _ = 1, 50 do -- limit depth to avoid infinite loop
-    local git_dir = dir .. '/.git'
-    if vim.fn.isdirectory(git_dir) == 1 then
+    local git_path = dir .. '/.git'
+    if vim.fn.isdirectory(git_path) == 1 or vim.fn.filereadable(git_path) == 1 then
       return dir
     end
     local parent = vim.fn.fnamemodify(dir, ':h')
